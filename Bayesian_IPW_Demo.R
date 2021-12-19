@@ -373,3 +373,42 @@ samp_outcome_model <- sampling(
 
 # Write the stan samples to an object
 write_rds(samp_outcome_model, str_c(models_dir, "IPW_Outcome_Model.rds"))
+
+# Calculate Treated and Untreated Units
+treats <- samp_outcome_model %>% 
+  # Tidy data frame of draws
+  tidy_draws() %>% 
+  # Transmute the draws
+  transmute(
+    treated = b_Intercept + `b[1]`,
+    untreated = b_Intercept,
+    ATE = treated - untreated
+  )
+
+
+ate_plot <- ggplot(treats, aes(x = ATE)) +
+  # Add the gradient slab
+  stat_halfeye(
+    aes(slab_alpha = stat(pdf)),
+    fill = "purple",
+    fill_type = "gradient",
+    show.legend = FALSE,
+    point_interval = mean_qi
+  ) +
+  # Apply custom theme settings
+  plot_theme(plot.margin = margin(5,5,5,5, "mm")) +
+  # Add labels
+  labs(
+    y = "Density", 
+    x = expression(paste("ATE", Delta))
+    )
+
+# Render the gradient plot to a file
+ggsave(
+  filename = "ATE_Graph.jpeg",
+  dpi = "retina",
+  device = "jpeg",
+  height = 8,
+  width = 12,
+  type = "cairo"
+)
