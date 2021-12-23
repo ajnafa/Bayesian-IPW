@@ -58,7 +58,19 @@ model {
   target += student_t_lpdf(alpha | 3, 0, 2.5);
   target += normal_lpdf(beta | 0, 3);
   target += student_t_lpdf(sigma | 3, 0, 10) - 1 * student_t_lccdf(0 | 3, 0, 10);
-}" -> stan_code
+}
+
+generated quantities {
+  // Actual Population-Level Intercept
+  real Intercept = alpha - dot_product(means_X, beta);
+  // Average Treatment Effect
+  real mu_treated = (Intercept + beta[1]) - Intercept;
+  vector[N] log_lik;
+  for (n in 1:N) {
+    log_lik[n] = (normal_lpdf(Y[n] | alpha + Xc[n] * beta, sigma)) * weights_tilde[n];
+  }
+}
+" -> stan_code
 
 # Define the data for the stan model
 stan_data_ls <- list(
@@ -90,9 +102,40 @@ cmdstan_test_fit <- cmdstan_test$sample(
   output_dir = "C:/Users/ajn0093/Dropbox/Bayesian-IPW/analyses/models/latent-ipw/",
   chains = 6, # Number of chains to run
   parallel_chains = 6,
-  iter_warmup = 2000, # Warmup Iterations
-  iter_sampling = 2000, # Sampling Iterations
+  iter_warmup = 3000, # Warmup Iterations
+  iter_sampling = 3000, # Sampling Iterations
   refresh = 50
 )
 
-cmdstan_test_fit$print()
+# Calculate Treated and Untreated Units
+treats <- cmdstan_test_fit$draws(variables = c("Intercept", "beta", "mu_treated", "sigma")) %>% 
+  # Tidy data frame of draws
+  tidy_draws()
+
+ate_plot <- ggplot(treats, aes(x = mu_treated)) +
+  # Add the gradient slab
+  stat_halfeye(
+    aes(slab_alpha = stat(pdf)),
+    fill = "blue",
+    fill_type = "gradient",
+    show.legend = FALSE,
+    point_interval = mean_qi
+  ) +
+  # Apply custom theme settings
+  plot_theme(plot.margin = margin(5,5,5,5, "mm")) +
+  # Add labels
+  labs(
+    y = "Density", 
+    x = expression(paste("ATE", Delta))
+  )
+
+# Render the gradient plot to a file
+ggsave(
+  filename = "ATE_Graph_Latent_IPW.jpeg",
+  dpi = "retina",
+  plot = ate_plot,
+  device = "jpeg",
+  height = 8,
+  width = 12,
+  type = "cairo"
+)
